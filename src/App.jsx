@@ -6,7 +6,7 @@ export default function App() {
   return (
     <>
       <header className="topbar">
-        <Link to="/" className="brand">📷 Photo Albums</Link>
+        <Link to="/" className="brand">📸 Regreso a Casa - Photo Albums</Link>
       </header>
       <main className="container">
         <Routes>
