@@ -1,0 +1,24 @@
+{
+  "name": "photo-album-server",
+  "version": "1.0.0",
+  "description": "Backend for the photo album sharing app",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "create-admin": "node src/scripts/createAdmin.js"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "heic-convert": "^2.1.0",
+    "multer": "^2.2.0",
+    "sharp": "^0.33.5"
+  }
+}
