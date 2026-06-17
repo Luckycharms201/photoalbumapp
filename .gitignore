@@ -1,8 +1,6 @@
 node_modules/
-server/.env
-server/uploads/*
-!server/uploads/.gitkeep
 dist/
+# generated gallery output (recreated by `npm run build` / `npm run dev`)
+public/gallery/
 *.log
 .DS_Store
-server/data/
