@@ -38,6 +38,8 @@ export const config = {
     data: path.resolve(serverRoot, process.env.DATA_DIR ?? 'data'),
     uploads: path.resolve(serverRoot, process.env.UPLOADS_DIR ?? 'uploads'),
     dbFile: path.resolve(serverRoot, process.env.DATA_DIR ?? 'data', 'app.db'),
+    // In production the built React app is served by Express from this path.
+    clientDist: path.resolve(serverRoot, process.env.CLIENT_DIST ?? '../client/dist'),
   },
 
   uploads: {

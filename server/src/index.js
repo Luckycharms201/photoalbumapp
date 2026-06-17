@@ -1,3 +1,5 @@
+import path from 'node:path';
+import fs from 'node:fs';
 import express from 'express';
 import session from 'express-session';
 import cookieParser from 'cookie-parser';
@@ -43,8 +45,18 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes); // requireAdmin enforced inside the router
 app.use('/api/public', publicRoutes);
 
-// 404 for unknown API routes.
+// 404 for unknown API routes (must come before the SPA fallback so API misses
+// return JSON instead of index.html).
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
+
+// In production, serve the built React app and let client-side routing handle
+// everything that isn't an /api route.
+if (config.isProd && fs.existsSync(config.paths.clientDist)) {
+  app.use(express.static(config.paths.clientDist));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(config.paths.clientDist, 'index.html'));
+  });
+}
 
 // Central error handler — always JSON, never an HTML stack trace.
 // eslint-disable-next-line no-unused-vars

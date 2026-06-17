@@ -156,11 +156,80 @@ instead of `sendFile`) and the rest of the app is unchanged.
 
 ---
 
-## Production notes
+## Deploy to Fly.io
+
+In production a single container runs Express, which serves both the API **and**
+the built React app on one port. SQLite + uploads live on a persistent Fly
+volume mounted at `/data`. The included `Dockerfile` builds the client and the
+server; `fly.toml` wires up the volume and HTTPS.
+
+### One-time setup
+
+```bash
+# 1. Install flyctl
+brew install flyctl            # macOS
+# or: curl -L https://fly.io/install.sh | sh
+
+# 2. Sign up / log in (opens a browser)
+fly auth signup                # or: fly auth login
+```
+
+### Create the app + volume
+
+Run these from the repo root (where `fly.toml` is). The app name must be
+**globally unique** — if `photoalbumapp` is taken, pick another and update the
+`app = "..."` line in `fly.toml`; your URL becomes `https://<name>.fly.dev`.
+
+```bash
+fly launch --no-deploy --copy-config --name photoalbumapp --region iad
+fly volumes create photo_data --region iad --size 1   # 1 GB persistent disk
+```
+
+### Set secrets (never commit these)
+
+Generate the admin password hash and session secret, then set them as Fly
+secrets. Replace the app name in the URLs if you changed it.
+
+```bash
+# admin password hash:
+( cd server && npm run create-admin -- "your-strong-password" )
+# session secret:
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+fly secrets set \
+  ADMIN_EMAIL="you@example.com" \
+  ADMIN_PASSWORD_HASH='<paste the hash>' \
+  SESSION_SECRET='<paste the secret>' \
+  PUBLIC_BASE_URL="https://photoalbumapp.fly.dev" \
+  CLIENT_ORIGIN="https://photoalbumapp.fly.dev"
+```
+
+### Deploy
+
+```bash
+fly deploy        # builds remotely (no local Docker needed)
+fly open          # opens the live app
+```
+
+Subsequent updates: commit, then `fly deploy` again.
+
+### Notes
+
+- Keep it to **one machine** — the app uses a single Fly volume, which binds to
+  one machine. (`fly scale count 1` if needed.)
+- `fly.toml` lets the machine auto-stop when idle (cost ≈ \$0 when unused).
+  Public viewing/admin auto-starts it on the next request.
+- The default `express-session` MemoryStore resets sessions when the machine
+  restarts/redeploys, so the admin re-logs-in occasionally. Public visitors have
+  no session and are unaffected. Swap in a persistent session store if you want
+  logins to survive restarts.
+- Back up your data with `fly volumes snapshots create <volume-id>`.
+
+## Generic production notes (other hosts)
 
 - Set `NODE_ENV=production` (enables `secure` cookies — serve over HTTPS).
-- Build the client (`cd client && npm run build`) and serve `dist/` from any
-  static host or from Express; point `PUBLIC_BASE_URL` at the real domain.
-- The default `express-session` MemoryStore is fine for a single admin but
-  resets sessions on restart; use a persistent store if that matters.
+- The build serves the client from Express automatically; point
+  `PUBLIC_BASE_URL` / `CLIENT_ORIGIN` at the real domain.
+- Provide persistent storage for `DATA_DIR` and `UPLOADS_DIR`, or implement the
+  S3 storage backend behind `server/src/storage/`.
 ```
