@@ -21,7 +21,7 @@ manifest, but anyone who has its link can view it. It is not access-controlled.
 ```
 albums/
   welcome/                 ← you create this
-    album.json             ← optional: { "title", "unlisted", "order" }
+    album.json             ← optional: { "title", "subtitle", "unlisted", "order" }
     photo-1.jpg            ← drop full-size photos here
     photo-2.png
   trip-2026/
@@ -75,9 +75,11 @@ npm run dev        # processes albums into public/gallery, then starts Vite (:51
 2. **Add photos:** drop `.jpg`, `.png`, `.webp`, or `.heic` files in it.
 3. **(Optional) `album.json`** in the folder to customize:
    ```json
-   { "title": "Maya's Birthday", "unlisted": false, "order": 2 }
+   { "title": "Maya's Birthday", "subtitle": "June 2026", "unlisted": false, "order": 2 }
    ```
    - `title` — display name (defaults to a prettified folder name)
+   - `subtitle` — small line under the title on the home page card (omit it and
+     the card centres the title on its own)
    - `unlisted` — `true` hides it from the home page (link-only access)
    - `order` — sort position on the home page (lower first)
 4. **Rename an album:** rename the folder. (Its share link changes.)

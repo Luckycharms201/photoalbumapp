@@ -95,16 +95,12 @@ label input { margin-top: .35rem; }
 .empty p { margin: .25rem 0; }
 
 /* Album grid */
-.album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1.1rem; }
-.album-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.album-cover { display: block; position: relative; aspect-ratio: 4/3; background: var(--surface-2); }
-.album-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.cover-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); font-size: .85rem; }
+.album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.4rem; }
+.album-grid > a { display: block; border-radius: 14px; }
+.album-grid > a:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
 .badge { position: absolute; top: .6rem; left: .6rem; font-size: .7rem; padding: .2rem .5rem; border-radius: 999px; font-weight: 600; }
 .badge.public { background: #1f7a4d; color: #d6ffe9; }
 .badge.private { background: #4a4f5c; color: #d7dbe3; }
-.album-body { padding: .85rem; }
-.album-title { font-weight: 600; display: block; margin-bottom: .15rem; }
 .album-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .7rem; }
 
 /* Share box */
@@ -160,4 +156,167 @@ label input { margin-top: .35rem; }
 @media (max-width: 640px) {
   .container { padding: 1rem; }
   .lb-nav { width: 44px; height: 44px; font-size: 2rem; }
+}
+
+/* ── Folder card ──────────────────────────────────────────────────────────
+   A cover behind a folder-shaped panel notched over it. Every dimension is in
+   cqw, so the card is pixel-exact at any width; the three moving parts all
+   key off one :hover on the root so they stay in sync. See FolderCard.jsx. */
+.folder-card {
+  /* the bezel matches the page, so the card reads as a folder, not a framed tile */
+  --folder-card-bezel: var(--bg);
+  --folder-card-surface: #151820;
+  --folder-card-panel-from: var(--surface-2);
+  --folder-card-panel-to: #151820;
+  --folder-card-title: var(--text);
+  --folder-card-subtitle: var(--muted);
+  /* overshoots to ~1.09 and settles — the shape of the spring this replaces */
+  --folder-card-ease: cubic-bezier(.34, 1.3, .44, 1);
+  --folder-card-duration: .42s;
+
+  container-type: inline-size;
+  width: 100%;
+  margin: 0;
+  user-select: none;
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: transform var(--folder-card-duration) var(--folder-card-ease);
+}
+.folder-card:hover,
+:focus-visible > .folder-card { transform: translateY(-8px); }
+a:active > .folder-card { transform: translateY(-4px) scale(.99); }
+
+.folder-card-bezel {
+  position: relative;
+  box-sizing: border-box;
+  aspect-ratio: 544 / 522;
+  width: 100%;
+  padding: 2.57cqw;
+  border-radius: 8.46cqw;
+  background: var(--folder-card-bezel);
+  box-shadow: 0 2cqw 5cqw -2cqw rgb(0 0 0 / .5);
+}
+.folder-card-inner {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 5.88cqw;
+  background: var(--folder-card-surface);
+}
+
+/* cover — held 1px in from the edges (see the note in FolderCard.jsx) */
+.folder-card-cover-clip {
+  position: absolute;
+  left: 1px; right: 1px; top: 0;
+  height: 54%;
+  overflow: hidden;
+}
+.folder-card-cover {
+  height: 100%;
+  width: 100%;
+  transform-origin: bottom;
+  transition: transform var(--folder-card-duration) var(--folder-card-ease);
+}
+.folder-card:hover .folder-card-cover,
+:focus-visible > .folder-card .folder-card-cover { transform: scale(1.07); }
+.folder-card-cover img { height: 100%; width: 100%; object-fit: cover; display: block; }
+
+/* amethyst dusk — a soft violet bloom rising out of the bottom-left, for
+   albums with no cover yet */
+.folder-card-aurora {
+  height: 100%;
+  width: 100%;
+  background:
+    radial-gradient(58% 76% at 76% 114%, rgba(246,238,255,.8) 0%, rgba(208,154,255,.42) 34%, rgba(0,0,0,0) 72%),
+    radial-gradient(105% 95% at 28% 136%, rgba(167,90,247,.72) 0%, rgba(109,40,217,.38) 46%, rgba(0,0,0,0) 80%),
+    linear-gradient(172deg, #140726 0%, #29104f 40%, #4a1c8f 74%, #6d28d9 100%);
+}
+
+/* folder front: panel + tab copy, moving as one — runs 1px proud of the edges */
+.folder-card-front-clip {
+  position: absolute;
+  left: -1px; right: -1px; top: 0; bottom: 0;
+  overflow: hidden;
+}
+.folder-card-front {
+  position: absolute;
+  inset: 0;
+  transition: transform var(--folder-card-duration) var(--folder-card-ease);
+}
+.folder-card:hover .folder-card-front,
+:focus-visible > .folder-card .folder-card-front { transform: translateY(8%); }
+.folder-card-front > svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.folder-card-tab {
+  position: absolute;
+  left: 4.78cqw;
+  right: 4.78cqw;
+  top: 29cqw;
+  line-height: 1;
+}
+/* with no subtitle, centre the lone title in the band the pair would fill */
+.folder-card-tab.is-single { top: 32.3cqw; }
+.folder-card-title {
+  margin: 0;
+  font-size: 4.25cqw;
+  font-weight: 600;
+  letter-spacing: .005em;
+  color: var(--folder-card-title);
+  max-width: 49cqw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-card-subtitle {
+  margin: 2.15cqw 0 0;
+  font-size: 4.4cqw;
+  font-weight: 400;
+  letter-spacing: .005em;
+  color: var(--folder-card-subtitle);
+  max-width: 56cqw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* footer stays put while the folder front slides */
+.folder-card-footer {
+  position: absolute;
+  left: 4.78cqw;
+  right: 4.78cqw;
+  bottom: 4.3cqw;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1cqw;
+  line-height: 1;
+  color: var(--folder-card-title);
+}
+.folder-card-footer p { margin: 0; }
+.folder-card-count { font-size: 9.2cqw; font-weight: 600; letter-spacing: -.01em; }
+.folder-card-count-label {
+  margin-left: 1.6cqw;
+  font-size: 4.2cqw;
+  font-weight: 400;
+  color: var(--folder-card-subtitle);
+}
+.folder-card-meta { font-size: 4.2cqw; font-weight: 600; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .folder-card,
+  .folder-card-cover,
+  .folder-card-front { transition: none; }
+  .folder-card:hover,
+  :focus-visible > .folder-card,
+  a:active > .folder-card,
+  .folder-card:hover .folder-card-cover,
+  :focus-visible > .folder-card .folder-card-cover,
+  .folder-card:hover .folder-card-front,
+  :focus-visible > .folder-card .folder-card-front { transform: none; }
 }

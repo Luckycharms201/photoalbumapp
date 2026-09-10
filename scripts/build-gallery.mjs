@@ -50,6 +50,7 @@ async function readAlbumMeta(dir, folderName) {
   }
   return {
     title: meta.title || prettify(folderName),
+    subtitle: typeof meta.subtitle === 'string' && meta.subtitle.trim() ? meta.subtitle.trim() : undefined,
     unlisted: !!meta.unlisted,
     order: Number.isFinite(meta.order) ? meta.order : null,
   };
@@ -59,7 +60,7 @@ function zipAlbum(zipPath, entries) {
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(zipPath);
     const archive = archiver('zip', { zlib: { level: 6 } });
-    output.on('close', resolve);
+    output.on('close', () => resolve(archive.pointer()));
     archive.on('error', reject);
     archive.pipe(output);
     const seen = new Map();
@@ -170,13 +171,15 @@ async function main() {
 
     if (!photos.length) continue;
 
-    await zipAlbum(path.join(OUT_DIR, 'zips', `${token}.zip`), zipEntries);
+    const zipBytes = await zipAlbum(path.join(OUT_DIR, 'zips', `${token}.zip`), zipEntries);
 
     const albumData = {
       title: meta.title,
+      subtitle: meta.subtitle,
       token,
       count: photos.length,
       zipUrl: `${PUBLIC_PREFIX}/zips/${token}.zip`,
+      zipBytes,
       photos,
     };
     await fsp.writeFile(path.join(OUT_DIR, 'data', `${token}.json`), JSON.stringify(albumData));
@@ -188,8 +191,10 @@ async function main() {
       manifestAlbums.push({
         token,
         title: meta.title,
+        subtitle: meta.subtitle,
         count: photos.length,
         cover: photos[0].thumbUrl,
+        zipBytes,
         order: meta.order,
       });
     }
