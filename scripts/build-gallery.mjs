@@ -1,31 +1,42 @@
 // Static gallery builder.
 //
-// Reads source albums from /albums/<name>/ (full-size photos you commit),
-// then for each album writes to the output dir (default dist/gallery):
-//   thumbs/<token>/*.webp   small webp thumbnails (EXIF baked in)
-//   photos/<token>/*.<ext>  full-size images (EXIF baked in, HEIC -> JPEG)
-//   zips/<token>.zip        whole-album download
-//   data/<token>.json       photo list for the album page
-// and a top-level manifest.json listing only the PUBLIC albums.
+// Reads source albums from /albums/<name>/ (full-size photos you commit).
+// A top-level folder is either
+//   - an ALBUM: photos directly inside it, or
+//   - a COLLECTION: subfolders with photos inside them (one level deep). Each
+//     subfolder becomes an album whose title is the subfolder name as-is, so
+//     it sorts and reads exactly like the folder on disk.
 //
-// The album token is derived deterministically from the folder name, so the
-// shareable /album/<token> link is stable across builds with nothing to persist.
+// For each album it writes to the output dir (default dist/gallery):
+//   thumbs/<token>/*.webp   small webp thumbnails for the grid
+//   previews/<token>/*.webp screen-sized webp for the lightbox
+//   photos/<token>/*.<ext>  the ORIGINAL file, byte for byte (full quality)
+//   data/<token>.json       photo list for the album page
+// plus data/<token>.json for each collection, and a top-level manifest.json
+// listing only the PUBLIC albums/collections.
+//
+// There are no build-time ZIPs: Cloudflare Pages caps files at 25 MiB, which a
+// real event album blows past. "Download all" zips the originals in the browser.
+//
+// Tokens are derived deterministically from the folder path, so the shareable
+// /album/<token> link is stable across builds with nothing to persist.
 // Renaming a folder changes its link (by design). Put `"unlisted": true` in an
 // album's album.json to keep it out of manifest.json (reachable only by link).
 
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import sharp from 'sharp';
-import archiver from 'archiver';
 import convert from 'heic-convert';
 
 const ROOT = process.cwd();
 const ALBUMS_DIR = path.join(ROOT, 'albums');
 const PUBLIC_PREFIX = '/gallery'; // URL prefix (served from dist/ or public/)
 const THUMB_WIDTH = 480;
+const PREVIEW_SIZE = 1920;
 const IMAGE_RE = /\.(jpe?g|png|webp|heic|heif)$/i;
+const CONCURRENCY = Math.max(2, Math.min(8, os.cpus().length));
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(name);
@@ -33,15 +44,17 @@ function arg(name, fallback) {
 }
 const OUT_DIR = path.resolve(ROOT, arg('--out', 'dist/gallery'));
 
-function tokenFor(folderName) {
-  return crypto.createHash('sha256').update(`album:${folderName}`).digest('hex').slice(0, 32);
+function tokenFor(folderPath) {
+  return crypto.createHash('sha256').update(`album:${folderPath}`).digest('hex').slice(0, 32);
 }
 
 function prettify(name) {
   return name.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-async function readAlbumMeta(dir, folderName) {
+const byName = (a, b) => a.localeCompare(b, 'es', { numeric: true });
+
+async function readAlbumMeta(dir, fallbackTitle) {
   let meta = {};
   try {
     meta = JSON.parse(await fsp.readFile(path.join(dir, 'album.json'), 'utf8'));
@@ -49,75 +62,120 @@ async function readAlbumMeta(dir, folderName) {
     /* optional file */
   }
   return {
-    title: meta.title || prettify(folderName),
+    title: meta.title || fallbackTitle,
     subtitle: typeof meta.subtitle === 'string' && meta.subtitle.trim() ? meta.subtitle.trim() : undefined,
     unlisted: !!meta.unlisted,
     order: Number.isFinite(meta.order) ? meta.order : null,
   };
 }
 
-function zipAlbum(zipPath, entries) {
-  return new Promise((resolve, reject) => {
-    const output = fs.createWriteStream(zipPath);
-    const archive = archiver('zip', { zlib: { level: 6 } });
-    output.on('close', () => resolve(archive.pointer()));
-    archive.on('error', reject);
-    archive.pipe(output);
-    const seen = new Map();
-    for (const e of entries) {
-      let name = e.name;
-      if (seen.has(name)) {
-        const n = seen.get(name) + 1;
-        seen.set(name, n);
-        const dot = name.lastIndexOf('.');
-        name = dot > 0 ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`;
-      } else {
-        seen.set(name, 0);
-      }
-      archive.file(e.path, { name });
-    }
-    archive.finalize();
-  });
+async function listDir(dir) {
+  const entries = await fsp.readdir(dir, { withFileTypes: true });
+  return {
+    images: entries.filter((e) => e.isFile() && IMAGE_RE.test(e.name) && !e.name.startsWith('.')).map((e) => e.name).sort(byName),
+    dirs: entries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name).sort(byName),
+  };
 }
 
-async function processImage(filePath, mime) {
-  let input = await fsp.readFile(filePath);
-  let ext = path.extname(filePath).slice(1).toLowerCase();
+// Run `fn` over `items` with bounded parallelism, preserving order.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
 
-  if (mime === 'heic' || mime === 'heif') {
-    input = Buffer.from(await convert({ buffer: input, format: 'JPEG', quality: 0.92 }));
+async function processImage(filePath) {
+  const original = await fsp.readFile(filePath);
+  let ext = path.extname(filePath).slice(1).toLowerCase();
+  let full = original;
+
+  // HEIC doesn't open in most browsers, so that one format is converted.
+  // Everything else is published exactly as it came off the camera.
+  if (ext === 'heic' || ext === 'heif') {
+    full = Buffer.from(await convert({ buffer: original, format: 'JPEG', quality: 0.95 }));
     ext = 'jpg';
   } else if (ext === 'jpeg') {
     ext = 'jpg';
   }
 
-  // Full-size: auto-rotate from EXIF (baked in), strip metadata.
-  const { data: full, info } = await sharp(input, { failOn: 'none' })
-    .rotate()
-    .toBuffer({ resolveWithObject: true });
+  const meta = await sharp(full, { failOn: 'none' }).metadata();
+  const rotated = (meta.orientation ?? 1) >= 5; // EXIF 5–8 swap width/height
+  const width = (rotated ? meta.height : meta.width) ?? null;
+  const height = (rotated ? meta.width : meta.height) ?? null;
 
-  const thumb = await sharp(input, { failOn: 'none' })
+  const thumb = await sharp(full, { failOn: 'none' })
     .rotate()
     .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
     .webp({ quality: 78 })
     .toBuffer();
 
+  const preview = await sharp(full, { failOn: 'none' })
+    .rotate()
+    .resize({ width: PREVIEW_SIZE, height: PREVIEW_SIZE, fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 82 })
+    .toBuffer();
+
   const hash = crypto.createHash('sha1').update(full).digest('hex').slice(0, 16);
-  return { full, thumb, ext, hash, width: info.width ?? null, height: info.height ?? null };
+  return { full, thumb, preview, ext, hash, width, height };
+}
+
+// Process one folder of photos into an album. Returns null if nothing usable.
+async function buildAlbum({ dir, files, token, title, subtitle, label, parent }) {
+  for (const sub of ['thumbs', 'previews', 'photos']) {
+    await fsp.mkdir(path.join(OUT_DIR, sub, token), { recursive: true });
+  }
+
+  const results = await mapLimit(files, CONCURRENCY, async (file) => {
+    try {
+      const r = await processImage(path.join(dir, file));
+      const fullName = `${r.hash}.${r.ext}`;
+      const webpName = `${r.hash}.webp`;
+      await fsp.writeFile(path.join(OUT_DIR, 'photos', token, fullName), r.full);
+      await fsp.writeFile(path.join(OUT_DIR, 'thumbs', token, webpName), r.thumb);
+      await fsp.writeFile(path.join(OUT_DIR, 'previews', token, webpName), r.preview);
+
+      const rawUrl = `${PUBLIC_PREFIX}/photos/${token}/${fullName}`;
+      // HEIC was converted, so its download name has to say .jpg too.
+      const name = /\.hei[cf]$/i.test(file) ? file.replace(/\.hei[cf]$/i, '.jpg') : file;
+      return {
+        name,
+        width: r.width,
+        height: r.height,
+        bytes: r.full.length,
+        thumbUrl: `${PUBLIC_PREFIX}/thumbs/${token}/${webpName}`,
+        previewUrl: `${PUBLIC_PREFIX}/previews/${token}/${webpName}`,
+        rawUrl,
+        downloadUrl: rawUrl,
+      };
+    } catch (err) {
+      console.warn(`  (fail) ${label}/${file}: ${err.message}`);
+      return null;
+    }
+  });
+
+  const photos = results.filter(Boolean);
+  if (!photos.length) return null;
+
+  const bytes = photos.reduce((sum, p) => sum + p.bytes, 0);
+  const albumData = { kind: 'album', title, subtitle, token, parent, count: photos.length, bytes, photos };
+  await fsp.writeFile(path.join(OUT_DIR, 'data', `${token}.json`), JSON.stringify(albumData));
+  return { token, title, subtitle, count: photos.length, bytes, cover: photos[0].thumbUrl };
 }
 
 async function main() {
   await fsp.rm(OUT_DIR, { recursive: true, force: true });
-  for (const sub of ['data', 'thumbs', 'photos', 'zips']) {
-    await fsp.mkdir(path.join(OUT_DIR, sub), { recursive: true });
-  }
+  await fsp.mkdir(path.join(OUT_DIR, 'data'), { recursive: true });
 
   let folders = [];
   try {
-    folders = (await fsp.readdir(ALBUMS_DIR, { withFileTypes: true }))
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .filter((n) => !n.startsWith('.'));
+    folders = (await listDir(ALBUMS_DIR)).dirs;
   } catch {
     console.warn(`No /albums directory found at ${ALBUMS_DIR} — building an empty gallery.`);
   }
@@ -125,79 +183,56 @@ async function main() {
   const manifestAlbums = [];
   let totalPhotos = 0;
 
-  for (const folder of folders.sort()) {
+  for (const folder of folders) {
     const dir = path.join(ALBUMS_DIR, folder);
     const token = tokenFor(folder);
-    const meta = await readAlbumMeta(dir, folder);
+    const meta = await readAlbumMeta(dir, prettify(folder));
+    const { images, dirs } = await listDir(dir);
+    const visibility = meta.unlisted ? '(unlisted)' : '(public)  ';
 
-    const files = (await fsp.readdir(dir))
-      .filter((f) => IMAGE_RE.test(f) && !f.startsWith('.'))
-      .sort();
+    let entry = null;
 
-    if (!files.length) {
-      console.warn(`  (skip) "${folder}" has no images`);
-      continue;
-    }
-
-    await fsp.mkdir(path.join(OUT_DIR, 'thumbs', token), { recursive: true });
-    await fsp.mkdir(path.join(OUT_DIR, 'photos', token), { recursive: true });
-
-    const photos = [];
-    const zipEntries = [];
-    for (const file of files) {
-      const mime = path.extname(file).slice(1).toLowerCase();
-      try {
-        const r = await processImage(path.join(dir, file), mime);
-        const fullName = `${r.hash}.${r.ext}`;
-        const thumbName = `${r.hash}.webp`;
-        const fullPath = path.join(OUT_DIR, 'photos', token, fullName);
-        await fsp.writeFile(fullPath, r.full);
-        await fsp.writeFile(path.join(OUT_DIR, 'thumbs', token, thumbName), r.thumb);
-
-        const rawUrl = `${PUBLIC_PREFIX}/photos/${token}/${fullName}`;
-        photos.push({
-          name: file,
-          width: r.width,
-          height: r.height,
-          thumbUrl: `${PUBLIC_PREFIX}/thumbs/${token}/${thumbName}`,
-          rawUrl,
-          downloadUrl: rawUrl,
+    if (images.length) {
+      const album = await buildAlbum({ dir, files: images, token, title: meta.title, subtitle: meta.subtitle, label: folder });
+      if (album) {
+        entry = { kind: 'album', ...album };
+        console.log(`  ${visibility} ${meta.title} — ${album.count} photo(s)`);
+        totalPhotos += album.count;
+      }
+    } else if (dirs.length) {
+      const children = [];
+      for (const child of dirs) {
+        const childDir = path.join(dir, child);
+        const { images: childImages } = await listDir(childDir);
+        if (!childImages.length) continue;
+        const album = await buildAlbum({
+          dir: childDir,
+          files: childImages,
+          token: tokenFor(`${folder}/${child}`),
+          title: child,
+          label: `${folder}/${child}`,
+          parent: { token, title: meta.title },
         });
-        zipEntries.push({ path: fullPath, name: file });
-      } catch (err) {
-        console.warn(`  (fail) ${folder}/${file}: ${err.message}`);
+        if (album) {
+          children.push(album);
+          console.log(`  ${visibility} ${meta.title} / ${child} — ${album.count} photo(s)`);
+          totalPhotos += album.count;
+        }
+      }
+      if (children.length) {
+        const count = children.reduce((s, a) => s + a.count, 0);
+        const bytes = children.reduce((s, a) => s + a.bytes, 0);
+        const collection = { kind: 'collection', token, title: meta.title, subtitle: meta.subtitle, count, bytes, albums: children };
+        await fsp.writeFile(path.join(OUT_DIR, 'data', `${token}.json`), JSON.stringify(collection));
+        entry = { kind: 'collection', token, title: meta.title, subtitle: meta.subtitle, count, bytes, albumCount: children.length, cover: children[0].cover };
       }
     }
 
-    if (!photos.length) continue;
-
-    const zipBytes = await zipAlbum(path.join(OUT_DIR, 'zips', `${token}.zip`), zipEntries);
-
-    const albumData = {
-      title: meta.title,
-      subtitle: meta.subtitle,
-      token,
-      count: photos.length,
-      zipUrl: `${PUBLIC_PREFIX}/zips/${token}.zip`,
-      zipBytes,
-      photos,
-    };
-    await fsp.writeFile(path.join(OUT_DIR, 'data', `${token}.json`), JSON.stringify(albumData));
-
-    totalPhotos += photos.length;
-    console.log(`  ${meta.unlisted ? '(unlisted)' : '(public)  '} ${meta.title} — ${photos.length} photo(s)`);
-
-    if (!meta.unlisted) {
-      manifestAlbums.push({
-        token,
-        title: meta.title,
-        subtitle: meta.subtitle,
-        count: photos.length,
-        cover: photos[0].thumbUrl,
-        zipBytes,
-        order: meta.order,
-      });
+    if (!entry) {
+      console.warn(`  (skip) "${folder}" has no images`);
+      continue;
     }
+    if (!meta.unlisted) manifestAlbums.push({ ...entry, order: meta.order });
   }
 
   manifestAlbums.sort((a, b) => {

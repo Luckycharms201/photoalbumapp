@@ -26,23 +26,24 @@ export default function Lightbox({ photos, index, onClose, onNavigate, downloada
 
   return (
     <div className="lightbox" onClick={onClose}>
-      <button className="lb-close" onClick={onClose} aria-label="Close">✕</button>
+      <button className="lb-close" onClick={onClose} aria-label="Cerrar">✕</button>
       {photos.length > 1 && (
-        <button className="lb-nav lb-prev" onClick={(e) => { e.stopPropagation(); prev(); }} aria-label="Previous">‹</button>
+        <button className="lb-nav lb-prev" onClick={(e) => { e.stopPropagation(); prev(); }} aria-label="Anterior">‹</button>
       )}
       <figure className="lb-figure" onClick={(e) => e.stopPropagation()}>
-        <img src={photo.rawUrl} alt={photo.name} />
+        {/* screen-sized preview to view; the button below gets the original */}
+        <img src={photo.previewUrl ?? photo.rawUrl} alt={photo.name} />
         <figcaption>
           <span>{photo.name}</span>
           {downloadable && (
-            <a className="btn small primary" href={photo.downloadUrl} download>
-              Download
+            <a className="btn small primary" href={photo.downloadUrl} download={photo.name}>
+              Descargar original
             </a>
           )}
         </figcaption>
       </figure>
       {photos.length > 1 && (
-        <button className="lb-nav lb-next" onClick={(e) => { e.stopPropagation(); next(); }} aria-label="Next">›</button>
+        <button className="lb-nav lb-next" onClick={(e) => { e.stopPropagation(); next(); }} aria-label="Siguiente">›</button>
       )}
     </div>
   );

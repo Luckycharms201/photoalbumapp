@@ -2,7 +2,8 @@
 
 A **fully static** photo gallery you publish to Cloudflare Pages. You add photos
 to folders and run a build; the public can browse a responsive gallery, view
-photos in a lightbox, and download single photos or whole albums as a ZIP.
+photos in a lightbox, and download single photos or whole albums as a ZIP —
+always the original file, byte for byte.
 
 There is **no server and no login** — "managing" albums means editing folders in
 this repo and pushing. Because it's static, *private* means **unlisted**: an
@@ -26,6 +27,10 @@ albums/
     photo-2.png
   trip-2026/
     ...
+  Event 2026/              ← a COLLECTION: subfolders instead of photos
+    album.json             ← optional, same fields
+    1-Arrival/             ← each subfolder is an album, titled exactly
+    2-Dinner/                 as the folder is named (sorted by name)
 
         ↓  npm run build  (sharp + archiver)
 
@@ -35,11 +40,15 @@ dist/
     manifest.json                      ← list of PUBLIC albums only
     data/<token>.json                  ← one per album (public + unlisted)
     thumbs/<token>/*.webp              ← fast-loading thumbnails
-    photos/<token>/*.<ext>             ← full-size images
-    zips/<token>.zip                   ← whole-album download
+    previews/<token>/*.webp            ← screen-sized images for the lightbox
+    photos/<token>/*.<ext>             ← the untouched originals (HEIC → JPEG)
 ```
 
-Each album's `<token>` is a SHA-256 of its folder name, so the shareable
+There are no build-time ZIPs: Cloudflare Pages rejects any file over 25 MiB.
+"Download all" fetches the originals and zips them in the visitor's browser
+(stored, not recompressed), streaming straight to disk where supported.
+
+Each album's `<token>` is a SHA-256 of its folder path, so the shareable
 `/album/<token>` link is **stable across builds** with nothing to commit.
 (Renaming a folder changes its link — by design.)
 

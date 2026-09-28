@@ -10,11 +10,11 @@
     "dev": "node scripts/build-gallery.mjs --out public/gallery && vite"
   },
   "dependencies": {
+    "client-zip": "^2.5.1",
+    "heic-convert": "^2.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
-    "archiver": "^7.0.1",
-    "heic-convert": "^2.1.0",
     "sharp": "^0.33.5"
   },
   "devDependencies": {

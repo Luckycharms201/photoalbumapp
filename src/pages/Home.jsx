@@ -1,13 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import FolderCard from '../components/FolderCard.jsx';
-
-function formatBytes(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return null;
-  const mb = bytes / 1024 / 1024;
-  if (mb < 1) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
-}
+import AlbumGrid from '../components/AlbumGrid.jsx';
 
 export default function Home() {
   const [albums, setAlbums] = useState([]);
@@ -42,21 +34,8 @@ export default function Home() {
 
   return (
     <div>
-      <div className="page-head"><h1>Albums</h1></div>
-      <div className="album-grid">
-        {albums.map((a) => (
-          <Link key={a.token} to={`/album/${a.token}`} aria-label={a.title}>
-            <FolderCard
-              title={a.title}
-              subtitle={a.subtitle}
-              count={a.count}
-              countLabel={a.count === 1 ? 'Foto' : 'Fotos'}
-              meta={formatBytes(a.zipBytes)}
-              cover={a.cover}
-            />
-          </Link>
-        ))}
-      </div>
+      <div className="page-head"><h1>Álbumes</h1></div>
+      <AlbumGrid albums={albums} />
     </div>
   );
 }
