@@ -215,7 +215,6 @@ function PhotoAlbumView({ album }) {
           bytes={chosen.reduce((s, p) => s + p.bytes, 0)}
           zipName={`${album.title} (${plural(chosen.length, 'foto', 'fotos')})`}
           entries={chosen.map((p) => ({ name: p.name, url: p.downloadUrl, bytes: p.bytes }))}
-          allowShare
           onClear={sel.clear}
         />
       )}

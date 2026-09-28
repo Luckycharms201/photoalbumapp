@@ -1,4 +1,34 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
+import { fetchAsFiles, shareOrWait, galleryTarget } from '../lib/download.js';
+
+const toPhotos = galleryTarget() === 'photos';
+
+// iOS: the original goes into Photos through the share sheet. If the download
+// outlasts the tap's activation, the button asks for one more tap.
+function SaveToPhotos({ photo }) {
+  const [state, setState] = useState({ status: 'idle', files: null });
+
+  const open = async (files) => {
+    const result = await shareOrWait(files);
+    setState(result === 'retry' ? { status: 'ready', files } : { status: 'idle', files: null });
+  };
+
+  const onClick = async () => {
+    if (state.files) return open(state.files);
+    setState({ status: 'fetching', files: null });
+    try {
+      await open(await fetchAsFiles([{ name: photo.name, url: photo.downloadUrl }], () => {}));
+    } catch {
+      setState({ status: 'idle', files: null });
+    }
+  };
+
+  return (
+    <button className="btn small primary" onClick={onClick} disabled={state.status === 'fetching'}>
+      {state.status === 'fetching' ? 'Preparando…' : state.status === 'ready' ? 'Toca para guardar' : 'Guardar en Fotos'}
+    </button>
+  );
+}
 
 // Full-size viewer with prev/next + keyboard nav. `photos` is the current list;
 // `index` is the active item; the parent owns navigation state.
@@ -35,11 +65,14 @@ export default function Lightbox({ photos, index, onClose, onNavigate, downloada
         <img src={photo.previewUrl ?? photo.rawUrl} alt={photo.name} />
         <figcaption>
           <span>{photo.name}</span>
-          {downloadable && (
+          {downloadable && (toPhotos ? (
+            // keyed so a half-finished save never carries over to the next photo
+            <SaveToPhotos key={photo.downloadUrl} photo={photo} />
+          ) : (
             <a className="btn small primary" href={photo.downloadUrl} download={photo.name}>
               Descargar original
             </a>
-          )}
+          ))}
         </figcaption>
       </figure>
       {photos.length > 1 && (
