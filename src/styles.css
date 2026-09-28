@@ -257,32 +257,31 @@ a:active > .folder-card { transform: translateY(-4px) scale(.99); }
   position: absolute;
   left: 4.78cqw;
   right: 4.78cqw;
-  top: 29cqw;
-  line-height: 1;
+  top: 28.3cqw;
 }
-/* with no subtitle, centre the lone title in the band the pair would fill */
-.folder-card-tab.is-single { top: 32.3cqw; }
+/* with no subtitle, centre a one-line title in the band the pair would fill */
+.folder-card-tab.is-single { top: 31.6cqw; }
 .folder-card-title {
   margin: 0;
   font-size: 4.25cqw;
   font-weight: 600;
+  line-height: 1.25;
   letter-spacing: .005em;
   color: var(--folder-card-title);
+  /* the first line has to clear the notch; longer names wrap onto the panel
+     below it rather than being cut, so the whole name always shows */
   max-width: 49cqw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .folder-card-subtitle {
-  margin: 2.15cqw 0 0;
+  margin: 1.6cqw 0 0;
   font-size: 4.4cqw;
   font-weight: 400;
+  line-height: 1.25;
   letter-spacing: .005em;
   color: var(--folder-card-subtitle);
   max-width: 56cqw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 /* footer stays put while the folder front slides */
@@ -319,4 +318,70 @@ a:active > .folder-card { transform: translateY(-4px) scale(.99); }
   :focus-visible > .folder-card .folder-card-cover,
   .folder-card:hover .folder-card-front,
   :focus-visible > .folder-card .folder-card-front { transform: none; }
+}
+
+/* ── Selection ────────────────────────────────────────────────────────────── */
+.head-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.select-hint { margin: -.6rem 0 1rem; }
+.has-selection-bar { padding-bottom: calc(6rem + env(safe-area-inset-bottom)); }
+
+.select-check {
+  position: absolute; top: .45rem; left: .45rem; z-index: 2;
+  width: 28px; height: 28px; padding: 0; border-radius: 50%;
+  border: 2px solid #fff; background: rgba(0,0,0,.35);
+  color: #fff; font-size: .95rem; font-weight: 700; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.4);
+  transition: opacity .15s, background .15s;
+}
+.is-selected .select-check { background: var(--primary); border-color: var(--primary); }
+
+/* photos: the check appears on hover with a mouse, always while selecting */
+.photo-tile .select-check { opacity: 0; }
+.photo-tile:hover .select-check,
+.photo-grid.is-selecting .select-check,
+.photo-tile .select-check:focus-visible { opacity: 1; }
+@media (hover: none) {
+  .photo-grid:not(.is-selecting) .select-check { display: none; }
+}
+.photo-grid.is-selecting .photo-tile img { cursor: pointer; }
+.photo-grid.is-selecting .photo-tile:hover img { transform: none; }
+.photo-tile.is-selected { outline: 3px solid var(--primary); outline-offset: -3px; }
+.photo-tile.is-selected img { transform: scale(.92); border-radius: 8px; }
+.photo-tile img { -webkit-touch-callout: none; }
+
+/* folders */
+.album-select {
+  position: relative; display: block; width: 100%; padding: 0; border: 0;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  border-radius: 14px;
+}
+.album-select .select-check { top: 4%; left: 5%; width: 34px; height: 34px; font-size: 1.1rem; }
+.album-select:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
+.album-select.is-selected .folder-card-bezel { box-shadow: 0 0 0 3px var(--primary), 0 2cqw 5cqw -2cqw rgb(0 0 0 / .5); }
+.album-select:not(.is-selected) .folder-card { opacity: .8; }
+
+/* bottom bar */
+.selection-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  background: rgba(26,29,36,.96); border-top: 1px solid var(--border);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom));
+}
+.selection-bar-inner {
+  max-width: 1100px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap;
+}
+.selection-bar-info { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.link-btn {
+  margin-left: .6rem; padding: 0; border: 0; background: none; font: inherit;
+  color: var(--primary); text-decoration: underline; cursor: pointer;
+}
+.selection-bar-error { color: #ffb3bf; font-size: .8rem; }
+.selection-bar-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .selection-bar-actions { width: 100%; }
+  .selection-bar-actions .btn { flex: 1; white-space: nowrap; }
+  .head-actions { width: 100%; }
+  .head-actions .btn { flex: 1; }
 }
