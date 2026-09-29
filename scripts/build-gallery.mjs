@@ -10,7 +10,8 @@
 // For each album it writes to the output dir (default dist/gallery):
 //   thumbs/<token>/*.webp   small webp thumbnails for the grid
 //   previews/<token>/*.webp screen-sized webp for the lightbox
-//   photos/<token>/*.<ext>  the ORIGINAL file, byte for byte (full quality)
+//   photos/<token>/*.<ext>  the ORIGINAL file, byte for byte (full quality),
+//                           unless it's over 25 MiB — then a re-encoded JPEG
 //   data/<token>.json       photo list for the album page
 // plus data/<token>.json for each collection, and a top-level manifest.json
 // listing only the PUBLIC albums/collections.
@@ -35,7 +36,8 @@ const ALBUMS_DIR = path.join(ROOT, 'albums');
 const PUBLIC_PREFIX = '/gallery'; // URL prefix (served from dist/ or public/)
 const THUMB_WIDTH = 480;
 const PREVIEW_SIZE = 1920;
-const IMAGE_RE = /\.(jpe?g|png|webp|heic|heif)$/i;
+const MAX_FILE_BYTES = 25 * 1024 * 1024; // Cloudflare Pages per-file limit
+const IMAGE_RE =/\.(jpe?g|png|webp|heic|heif)$/i;
 const CONCURRENCY = Math.max(2, Math.min(8, os.cpus().length));
 
 function arg(name, fallback) {
@@ -103,6 +105,28 @@ async function processImage(filePath) {
     ext = 'jpg';
   } else if (ext === 'jpeg') {
     ext = 'jpg';
+  }
+
+  // Pages rejects any file over 25 MiB (and fails the whole deploy), so only
+  // an original that big gets re-encoded — same pixels count, lower quality
+  // step by step, and a smaller size only as a last resort.
+  if (full.length > MAX_FILE_BYTES) {
+    const before = full.length;
+    for (const [quality, scale] of [[92, 1], [88, 1], [84, 1], [80, 1], [85, 0.8], [80, 0.6]]) {
+      let img = sharp(full, { failOn: 'none' }).keepMetadata();
+      if (scale < 1) {
+        const m = await sharp(full, { failOn: 'none' }).metadata();
+        img = img.resize({ width: Math.round(m.width * scale) });
+      }
+      const out = await img.jpeg({ quality, mozjpeg: true }).toBuffer();
+      if (out.length <= MAX_FILE_BYTES) {
+        full = out;
+        break;
+      }
+    }
+    if (full.length > MAX_FILE_BYTES) throw new Error(`still ${full.length} bytes after re-encoding`);
+    ext = 'jpg';
+    console.log(`  (shrunk) ${path.basename(filePath)}: ${(before / 1048576).toFixed(1)} → ${(full.length / 1048576).toFixed(1)} MiB`);
   }
 
   const meta = await sharp(full, { failOn: 'none' }).metadata();
