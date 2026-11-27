@@ -1,5 +1,6 @@
 node_modules/
-dist/
+dist
+dist.nosync/
 # generated gallery output (recreated by `npm run build` / `npm run dev`)
 public/gallery/
 *.log
